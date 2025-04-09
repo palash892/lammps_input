@@ -19,3 +19,4 @@ You can run a LAMMPS input file in parallel using `mpirun` as follows:
 
 ```bash
 mpirun -np <num_processors> lmp_mpi -in <input_file>
+mpirun -np 8 lmp_mpi -in org_equilibriate.run
