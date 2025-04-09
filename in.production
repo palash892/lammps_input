@@ -1,0 +1,115 @@
+#====================================================================================================
+#====================================================================================================
+#
+# PRODUCTION.RUN
+#
+# created on 2021-11-16 16:49:20
+#
+#====================================================================================================
+#====================================================================================================
+# Production Run for Point Dipoles in a 2D Box With Position Dependent Active Speed
+# -> uses modified lammps version 20210127 with moment of inertia of a sphere and
+#    harmonic trap in the high_speed region
+#====================================================================================================
+#====================================================================================================
+
+
+#====================================================================================================
+# General Configuration
+#====================================================================================================
+units		lj			# units scaled with LJ parameters
+atom_style	hybrid sphere dipole	# atom type
+dimension	2			# dimension of the system
+boundary p p p				# periodic boundaries in each direction
+
+		
+#====================================================================================================
+# Interaction Potential (WCA: Shifted and Cutoff LJ Potential)
+#====================================================================================================
+pair_style  lj/cut 1.122
+#zero smoothly at the cutoff
+pair_modify shift yes
+
+
+#====================================================================================================
+# Neighbor List Configuration
+#====================================================================================================
+#neighbor list skin distance to 0.3 and uses binning for neighbor list construction.
+#if the pairwise cutoff is 1.122 (as set by pair_style lj/cut 1.122), 
+#then the neighbor list includes all particles within 1.122 + 0.3 = 1.422 σ.
+neighbor	0.3 bin	  	# create with binning (LJ cutoff + 0.3)
+#Controls how often the neighbor list is updated:
+#every 1 → Neighbor list is rebuilt every 1 timestep.
+#delay 0 → No delay in updating the neighbor list after the first rebuild.
+neigh_modify	every 1 delay 0  	# build lists every 5 steps
+
+
+#====================================================================================================
+# Get Data from Input File and Update Interaction Parameter
+#====================================================================================================
+read_data ../../../00_equil/phi_0.35/N_16000/input.data
+#read_restart cfginput.rst
+# Applies these parameters to all atom types in the system * *.
+# epsilon, sigma cutoff distance	
+pair_coeff  * * 10.0 1.0 1.122
+
+
+#====================================================================================================
+# Simulation and Print Configuration
+#====================================================================================================
+timestep	1e-5
+
+#This command defines a compute named erot that calculates the rotational kinetic energy of all spherical particles.
+#erotate/sphere is used for granular or colloidal systems where particles have rotational degrees of freedom.
+compute	erot all erotate/sphere
+#This specifies a custom format for thermodynamic output.
+#step: Current timestep, temp: System temperature, epair: Pairwise potential energy, c_erot: The computed rotational energy (erot) from the compute command
+#etotal: Total energy (sum of kinetic and potential energy)
+#press: System pressure
+thermo_style	custom step temp epair c_erot etotal press
+#This sets the thermodynamic output frequency to every 50,000 timesteps.
+thermo		50000
+
+
+#====================================================================================================
+# Short Equilibration (to remove artifacts at the beginning of the simulation/trajectory)
+#====================================================================================================
+#use:: fix 1 all nve/spherebdr seed mol_mass gamma_t gamma_r mol_temperature high_speed low_speed high_fraction pot_depth
+fix     	1 all nve/spherebdr 10 5e-2 1.0 1.0 1.0 148.4924 155.5635 0.4 0.00
+fix		2 all enforce2d 	# removes velocities and forces in z-direction
+
+run 5000
+
+unfix 1
+unfix 2
+reset_timestep 0
+
+
+#====================================================================================================
+# Final Production Run
+#====================================================================================================
+#use:: fix prod all nve/spherebdr seed mol_mass gamma_t gamma_r mol_temperature high_speed low_speed high_fraction pot_depth
+fix             prod all nve/spherebdr 0 5e-2 1.0 1.0 1.0 148.4924 155.5635 0.4 0.00
+fix             99 all enforce2d	# removes velocities and forces in z-direction
+
+# compute certain measures
+#compute 	KE all ke/atom					# calculates translational kinetic energy for each atom
+#variable   	magv atom sqrt(2*c_KE/5e-2) 		# magnitude of the velocity
+#compute    	q6 all hexorder/atom 				# hexagonal order parameter (nn-cutoff=LJ cutoff)
+#variable   	normq6 atom sqrt(c_q6[1]^2+c_q6[2]^2)		# norm of hexagonal order parameter
+#compute	xorient all property/atom mux
+#compute	yorient all property/atom muy
+#variable      	theta atom atan(c_yorient/c_xorient) 		# orientation angle
+
+# Save position file
+dump   	4 all custom 50000 dump*.txt id type x y z vx vy fx fy mux muy mu radius mass
+dump_modify 	4 sort 1
+
+# write restart file periodically
+restart 1000000 *_restart.rst
+
+# run production simulation
+run   200000000
+write_data final.data
+write_restart cfgfinal.rst
+
